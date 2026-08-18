@@ -7,11 +7,14 @@
  * ctx.inject 回调式可选挂载：无 web 环境时插件照常加载，只是没有路由。
  *
  * 路由（同源 JSON）：
- *   GET /api/fiber-lens/ping     → { version }            轻量心跳
- *   GET /api/fiber-lens/snapshot → { version, at, fibers, services }  全量快照
+ *   GET /api/fiber-lens/ping          → { version }                     轻量心跳
+ *   GET /api/fiber-lens/snapshot      → { version, at, fibers, services }  全量快照
+ *   GET /api/fiber-lens/participation → { ok, session, participants, inflight }  会话参与集
  *
  * version 由 internal/status / internal/plugin / internal/service 事件
  * 驱动递增；浏览器侧每秒 ping，version 变化才拉全量快照。
+ * 参与集由 session/created + session/event 推导（见 participation.ts），
+ * 会话存储走查询式 ctx.get('sessions') 追赶——零硬 inject 原则的延伸。
  * @module dsh-fiber-lens
  */
 import type { Context, Fiber } from '@deepseek-ai/cordis'
@@ -19,6 +22,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 // Type-only side-effect import: pull the webServer Context augmentation in.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
+// Type-only side-effect import: session/created、session/event、session/disposed 的 Events 声明合并。
+import type {} from '@deepseek-ai/dsh-session'
+import type { Session } from '@deepseek-ai/dsh-session'
+import { ParticipationTracker } from './participation.ts'
 
 export const name = 'fiber-lens'
 
@@ -242,6 +249,25 @@ export function apply(ctx: Context): void {
     return cached
   }
 
+  // 会话参与集 + 在飞跟踪（P2）：session 事件流驱动，工具→fiber 走命名约定映射。
+  const tracker = new ParticipationTracker(() => new Set(snapshot().fibers.map((fiber) => fiber.name)))
+  ctx.on('session/created', (session) => tracker.noteSession(session))
+  ctx.on('session/event', (session, event) => tracker.noteEvent(session, event))
+  ctx.on('session/disposed', (session) => tracker.dropSession(String(session.id)))
+
+  /**
+   * 插件加载前已存在的会话没有 created 事件，端点按 id 做一次性追赶。
+   * 查询式 ctx.get('sessions')：服务缺席时静默降级为空参与集（零硬 inject）。
+   */
+  const catchUp = (sessionId: string): void => {
+    if (tracker.has(sessionId)) return
+    // dsh-session 与 dsh-client-runtime 都向 Context 合并 sessions 属性（类型面冲突由
+    // skipLibCheck 吸收），此处按结构面窄化，不依赖任一合并结果。
+    const store = ctx.get('sessions') as unknown as { get(id: string): Session | undefined } | undefined
+    const session = store?.get(sessionId)
+    if (session !== undefined) tracker.noteSession(session)
+  }
+
   const routes: WebRoute[] = [
     {
       kind: 'exact',
@@ -264,6 +290,27 @@ export function apply(ctx: Context): void {
         }
         try {
           json(res, 200, { ok: true, snapshot: snapshot() })
+        } catch (error) {
+          json(res, 500, {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      },
+    },
+    {
+      kind: 'exact',
+      path: `${API_PREFIX}/participation`,
+      handler: (req: IncomingMessage, res: ServerResponse): void => {
+        if (req.method !== 'GET') {
+          json(res, 405, { ok: false, error: 'method-not-allowed' })
+          return
+        }
+        try {
+          const sessionParam = new URL(req.url ?? '/', 'http://fiber-lens.local').searchParams.get('session')
+          const sessionId = sessionParam === null || sessionParam === '' ? null : sessionParam
+          if (sessionId !== null) catchUp(sessionId)
+          json(res, 200, { ok: true, ...tracker.query(sessionId) })
         } catch (error) {
           json(res, 500, {
             ok: false,

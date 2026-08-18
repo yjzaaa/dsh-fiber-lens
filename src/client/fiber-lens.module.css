@@ -20,29 +20,36 @@
   display: flex;
   flex-direction: column;
   pointer-events: auto;
-  background: var(--color-surface, rgba(15, 23, 42, 0.96));
-  color: var(--color-text, #e2e8f0);
-  border: 1px solid var(--color-border, #334155);
+  background: var(--dsw-alias-bg-layer-2, rgba(15, 23, 42, 0.96));
+  color: var(--dsw-alias-label-primary, #e2e8f0);
+  border: 1px solid var(--dsw-alias-border-l2, #334155);
   border-radius: 12px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
-  font-family: ui-monospace, 'JetBrains Mono', Consolas, monospace;
+  font-family: var(--dsw-font-family, ui-monospace, 'JetBrains Mono', Consolas, monospace);
   font-size: 12px;
   backdrop-filter: blur(8px);
 }
+
+/* 拖动后的自由定位：取消居中变换，由 inline left/top 决定位置。 */
+.panelDragged { transform: none; }
 
 .header {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border, #334155);
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #334155);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
 }
+.headerDragging, .header:active { cursor: grabbing; }
 
 .title { font-weight: 700; }
 
 .stats {
   flex: 1;
-  color: var(--color-text-muted, #94a3b8);
+  color: var(--dsw-alias-label-tertiary, #94a3b8);
   font-size: 11px;
 }
 
@@ -60,7 +67,7 @@
 .errorBar {
   padding: 6px 14px;
   color: #fb7185;
-  border-bottom: 1px solid var(--color-border, #334155);
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #334155);
   font-size: 11px;
 }
 
@@ -73,7 +80,7 @@
 .empty {
   padding: 18px;
   text-align: center;
-  color: var(--color-text-muted, #94a3b8);
+  color: var(--dsw-alias-label-tertiary, #94a3b8);
 }
 
 .row {
@@ -86,15 +93,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.row:hover { background: rgba(148, 163, 184, 0.08); }
-.rowSelected { background: rgba(34, 211, 238, 0.12); }
+.row:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(148, 163, 184, 0.08)); }
+.rowSelected { background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #22d3ee) 12%, transparent); }
 
 .dot { width: 14px; text-align: center; flex: none; }
 
 .caret {
   width: 12px;
   flex: none;
-  color: var(--color-text-muted, #94a3b8);
+  color: var(--dsw-alias-label-tertiary, #94a3b8);
   font-size: 10px;
 }
 
@@ -102,8 +109,8 @@
   flex: none;
   padding: 0 6px;
   border-radius: 8px;
-  background: rgba(34, 211, 238, 0.15);
-  color: #22d3ee;
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #22d3ee) 15%, transparent);
+  color: var(--dsw-alias-state-business-primary, #22d3ee);
   font-size: 10px;
   font-weight: 700;
 }
@@ -116,13 +123,13 @@
 }
 
 .instanceMeta {
-  color: var(--color-text-muted, #94a3b8);
+  color: var(--dsw-alias-label-tertiary, #94a3b8);
   font-size: 11px;
 }
 
 .internalHeader {
   margin-top: 8px;
-  border-top: 1px solid var(--color-border, #334155);
+  border-top: 1px solid var(--dsw-alias-border-l2, #334155);
   padding-top: 8px;
 }
 
@@ -136,7 +143,7 @@
 .fiberName { font-weight: 600; }
 
 .stateLabel {
-  color: var(--color-text-muted, #94a3b8);
+  color: var(--dsw-alias-label-tertiary, #94a3b8);
   font-size: 10px;
 }
 
@@ -145,17 +152,17 @@
 .ok { color: #34d399; font-size: 10px; }
 
 .detail {
-  border-top: 1px solid var(--color-border, #334155);
+  border-top: 1px solid var(--dsw-alias-border-l2, #334155);
   padding: 10px 14px;
   font-size: 11px;
 }
 
-.detailLine { margin-top: 4px; color: var(--color-text-muted, #94a3b8); }
+.detailLine { margin-top: 4px; color: var(--dsw-alias-label-tertiary, #94a3b8); }
 
 .footer {
-  border-top: 1px solid var(--color-border, #334155);
+  border-top: 1px solid var(--dsw-alias-border-l2, #334155);
   padding: 6px 14px;
-  color: var(--color-text-muted, #94a3b8);
+  color: var(--dsw-alias-label-tertiary, #94a3b8);
   font-size: 10px;
 }
 
@@ -169,3 +176,177 @@
   opacity: 0.85;
 }
 .trigger:hover { opacity: 1; }
+
+/* ---- DAG 画布视图 ---- */
+
+.viewBtn {
+  cursor: pointer;
+  border: 1px solid var(--dsw-alias-border-l2, #334155);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary, #94a3b8);
+  font-size: 11px;
+  padding: 2px 8px;
+  flex: none;
+}
+.viewBtnActive {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #22d3ee) 15%, transparent);
+  border-color: var(--dsw-alias-state-business-primary, #22d3ee);
+  color: var(--dsw-alias-state-business-primary, #22d3ee);
+}
+
+/* DAG 模式下画布更宽，容纳左→右分层树。 */
+.panelDag { width: 780px; }
+
+.bodyDag {
+  flex: 1;
+  display: flex;
+  height: min(56vh, 520px);
+  min-height: 320px;
+  overflow: hidden;
+}
+
+.dagRoot {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  user-select: none;
+  background: var(--dsw-alias-bg-layer-1, rgba(2, 6, 23, 0.6));
+}
+
+.dagSvg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+.dagSvgPanning { cursor: grabbing; }
+
+.dagEdge {
+  fill: none;
+  stroke: var(--color-text-muted, #64748b);
+  stroke-width: 1;
+  opacity: 0.7;
+}
+
+.dagNode { cursor: pointer; }
+
+.dagNodeRect { stroke-width: 1.2; }
+
+/* 选中描边环：套在状态色 rect 之上。 */
+.dagSelected {
+  stroke: var(--dsw-alias-label-primary, #e2e8f0);
+  stroke-width: 2.2;
+}
+
+.dagLabel {
+  fill: var(--dsw-alias-label-primary, #e2e8f0);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.dagBadgeRect {
+  fill: color-mix(in srgb, var(--dsw-alias-state-business-primary, #22d3ee) 15%, transparent);
+  stroke: var(--dsw-alias-state-business-primary, #22d3ee);
+  stroke-width: 1;
+}
+.dagBadgeText {
+  fill: var(--dsw-alias-state-business-primary, #22d3ee);
+  font-size: 9px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+/* FULL 档选中节点的 inject/provides 详情底卡（不透明，盖在下方行之上）。 */
+.dagDetailBox {
+  fill: var(--dsw-alias-bg-layer-2, #0f172a);
+  stroke: var(--dsw-alias-border-l2, #334155);
+  stroke-width: 1;
+}
+.dagDetailText {
+  fill: var(--dsw-alias-label-tertiary, #94a3b8);
+  font-size: 9px;
+  pointer-events: none;
+}
+
+.dagHint {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  color: var(--dsw-alias-label-tertiary, #94a3b8);
+  font-size: 10px;
+  pointer-events: none;
+}
+
+/* 六色状态：节点矩形淡填充 + 同色系描边；solid-* 为状态点实心填充。 */
+.fill-active { fill: rgba(52, 211, 153, 0.22); stroke: #34d399; }
+.fill-pending { fill: rgba(251, 191, 36, 0.22); stroke: #fbbf24; }
+.fill-loading { fill: rgba(34, 211, 238, 0.22); stroke: #22d3ee; }
+.fill-unloading { fill: rgba(251, 146, 60, 0.22); stroke: #fb923c; }
+.fill-failed { fill: rgba(251, 113, 133, 0.22); stroke: #fb7185; }
+.fill-disposed { fill: rgba(100, 116, 139, 0.22); stroke: #64748b; }
+
+.solid-active { fill: #34d399; }
+.solid-pending { fill: #fbbf24; }
+.solid-loading { fill: #22d3ee; }
+.solid-unloading { fill: #fb923c; }
+.solid-failed { fill: #fb7185; }
+.solid-disposed { fill: #64748b; }
+
+/* ---- diff 驱动动画（设计 v0.4 §6：全部有限、diff 触发、有明确结束态） ---- */
+
+/* 状态变化：颜色 morph 400ms（class 切换驱动 fill/stroke 过渡）。 */
+.dagNodeRect { transition: fill 400ms ease, stroke 400ms ease; }
+.dagNode circle { transition: fill 400ms ease; }
+.dagNode { transition: opacity 300ms ease, filter 300ms ease; }
+
+/* 新增节点：pop-in（scale 0.6→1 + fade）。transform-box 让 scale 以节点自身为原点。 */
+.dagEnter {
+  animation: dagPop 400ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes dagPop {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* 消失节点：灰化淡出 400ms 后由 JS 移除（transitions.ts 的 LEAVE_MS 同步）。 */
+.dagLeave {
+  animation: dagFadeOut 400ms ease forwards;
+  pointer-events: none;
+  filter: grayscale(1);
+}
+@keyframes dagFadeOut {
+  from { opacity: 0.8; }
+  to { opacity: 0; }
+}
+
+/* ---- 会话镜头三态（设计 §5.1） ---- */
+
+/* 已参与：暗色 40% 不透明度。 */
+.sessionDim { opacity: 0.4; }
+
+/* 正在经手：全不透明 + 发光描边（drop-shadow 对 SVG 元素有效；filter 过渡即发光淡入淡出）。 */
+.sessionLive { opacity: 1; filter: drop-shadow(0 0 6px var(--dsw-alias-state-business-primary, rgba(34, 211, 238, 0.85))); }
+.sessionLive .dagNodeRect { stroke-width: 2; }
+
+/* 在飞操作行：节点标签下方的参数摘要 + 关口。 */
+.sessionInflightText {
+  fill: var(--dsw-alias-state-business-primary, #22d3ee);
+  font-size: 9px;
+  pointer-events: none;
+}
+
+/* reduced-motion 回退：全部动画/过渡回退为静态状态色（设计 §6 纪律）。 */
+@media (prefers-reduced-motion: reduce) {
+  .dagRoot .dagNode,
+  .dagRoot .dagNodeRect,
+  .dagRoot .dagNode circle,
+  .dagRoot .dagEnter,
+  .dagRoot .dagLeave {
+    animation: none;
+    transition: none;
+  }
+}

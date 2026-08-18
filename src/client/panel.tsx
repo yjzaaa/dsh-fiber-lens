@@ -4,9 +4,11 @@
  * （Loader/Hmr/Include/isolate…）单独折叠在底部「运行时机制」区。
  * @module dsh-fiber-lens/client/panel
  */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { FiberGroup, FiberNode, LensState } from './store.ts'
+import type { FiberGroup, FiberLensStore, FiberNode, LensState } from './store.ts'
+import { DagCanvas } from './dag/canvas.tsx'
+import { SessionCanvas } from './dag/session-canvas.tsx'
 import styles from './fiber-lens.module.css'
 
 const STATE_ICONS: Record<string, string> = {
@@ -95,14 +97,46 @@ function FiberDetail({ fiber }: { fiber: FiberNode }) {
   )
 }
 
-export function LensPanel({ state, onClose }: { state: LensState; onClose: () => void }) {
+export function LensPanel({ state, store, onClose }: { state: LensState; store: FiberLensStore; onClose: () => void }) {
   const [selectedUid, setSelectedUid] = useState<string | null>(null)
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   const [showInternal, setShowInternal] = useState(false)
+  // 列表 / DAG 视图切换：面板本地状态，不持久化；镜头（机制/会话）在 store（轮询需要）。
+  const [view, setView] = useState<'list' | 'dag'>('list')
+  const lens = state.lens
   const snapshot = state.snapshot
+
+  // 面板拖拽：null = 默认居中；拖过以后用 inline left/top 自由定位（面板本地状态，不持久化）。
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null)
+
+  const onHeaderPointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
+    // 点在按钮（视图切换/关闭）上不启动拖拽
+    if ((e.target as HTMLElement).closest('button') !== null) return
+    const panel = e.currentTarget.parentElement
+    if (panel === null) return
+    const rect = panel.getBoundingClientRect()
+    dragRef.current = { startX: e.clientX, startY: e.clientY, baseX: rect.left, baseY: rect.top }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  const onHeaderPointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
+    const d = dragRef.current
+    if (d === null) return
+    setPos({ x: d.baseX + e.clientX - d.startX, y: d.baseY + e.clientY - d.startY })
+  }
+  const onHeaderPointerUp = (e: React.PointerEvent<HTMLDivElement>): void => {
+    dragRef.current = null
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
+  }
 
   const toggleGroup = (name: string): void =>
     setExpandedGroups((cur) => ({ ...cur, [name]: !cur[name] }))
+
+  const showList = (): void => setView('list')
+  const showLens = (next: 'mechanism' | 'session'): void => {
+    setView('dag')
+    store.patch({ lens: next, lensTouched: true })
+  }
 
   const groups = snapshot?.groups ?? []
   const pluginGroups = groups.filter((g) => g.kind === 'plugin')
@@ -118,20 +152,64 @@ export function LensPanel({ state, onClose }: { state: LensState; onClose: () =>
   // createPortal 挂到 document.body：彻底跳出 slot 单元格的层叠上下文。
   return createPortal(
     <div className={styles.overlayRoot}>
-      <div className={styles.panel}>
-        <div className={styles.header}>
+      <div
+        className={`${styles.panel} ${view === 'dag' ? styles.panelDag : ''} ${pos !== null ? styles.panelDragged : ''}`}
+        style={pos !== null ? { left: pos.x, top: pos.y } : undefined}
+      >
+        <div
+          className={styles.header}
+          onPointerDown={onHeaderPointerDown}
+          onPointerMove={onHeaderPointerMove}
+          onPointerUp={onHeaderPointerUp}
+        >
           <span className={styles.title}>🔬 Fiber Lens</span>
           <span className={styles.stats}>
             {snapshot === null
               ? 'loading…'
               : `${groups.length} 插件 · ${snapshot.fibers.length} 实例${abnormal > 0 ? ` · ${abnormal} 异常` : ''}`}
           </span>
+          <button
+            type="button"
+            className={`${styles.viewBtn} ${view === 'list' ? styles.viewBtnActive : ''}`}
+            onClick={showList}
+          >☰ 列表</button>
+          <button
+            type="button"
+            className={`${styles.viewBtn} ${view === 'dag' && lens === 'mechanism' ? styles.viewBtnActive : ''}`}
+            onClick={() => showLens('mechanism')}
+          >🔬 机制</button>
+          <button
+            type="button"
+            className={`${styles.viewBtn} ${view === 'dag' && lens === 'session' ? styles.viewBtnActive : ''}`}
+            onClick={() => showLens('session')}
+          >💬 会话</button>
           <span className={state.reachable ? styles.ok : styles.waiting}>
             {state.reachable ? `v${state.version}` : '离线'}
           </span>
           <button type="button" className={styles.closeBtn} onClick={onClose}>×</button>
         </div>
         {state.error !== null && <div className={styles.errorBar}>{state.error}</div>}
+        {view === 'dag' ? (
+          <div className={styles.bodyDag}>
+            {snapshot === null
+              ? <div className={styles.empty}>等待首个快照…</div>
+              : lens === 'session'
+                ? (
+                  <SessionCanvas
+                    fibers={snapshot.fibers}
+                    participation={state.participation}
+                    sessionId={state.sessionId}
+                  />
+                )
+                : (
+                  <DagCanvas
+                    fibers={snapshot.fibers}
+                    selectedUid={selectedUid}
+                    onSelect={(uid) => setSelectedUid((cur) => (cur === uid ? null : uid))}
+                  />
+                )}
+          </div>
+        ) : (
         <div className={styles.body}>
           {snapshot === null && <div className={styles.empty}>等待首个快照…</div>}
           {pluginGroups.map((group) => (
@@ -165,6 +243,7 @@ export function LensPanel({ state, onClose }: { state: LensState; onClose: () =>
             </div>
           )}
         </div>
+        )}
         {selected !== null && <FiberDetail fiber={selected} />}
         <div className={styles.footer}>
           {snapshot !== null && `快照 v${snapshot.version} · ${new Date(snapshot.at).toLocaleTimeString()} · ${snapshot.services.length} 个服务`}
