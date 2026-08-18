@@ -1,11 +1,12 @@
 /**
- * Fiber Lens 浮层面板：缩进树 + 状态灯 + inject/provides 行内标注。
- * 点击某行展开详情（missing 依赖高亮）。
+ * Fiber Lens 浮层面板：分组视图（逻辑插件 ×N 实例）+ 实例展开 + 详情卡。
+ * 264 个 fiber 实例按名称聚合为百余个逻辑插件；Cordis 机制 fiber
+ * （Loader/Hmr/Include/isolate…）单独折叠在底部「运行时机制」区。
  * @module dsh-fiber-lens/client/panel
  */
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { FiberNode, LensState } from './store.ts'
+import type { FiberGroup, FiberNode, LensState } from './store.ts'
 import styles from './fiber-lens.module.css'
 
 const STATE_ICONS: Record<string, string> = {
@@ -17,27 +18,58 @@ const STATE_ICONS: Record<string, string> = {
   disposed: '○',
 }
 
+function StateDot({ state }: { state: string }) {
+  return <span className={`${styles.dot} ${styles[`state-${state}`] ?? ''}`}>{STATE_ICONS[state] ?? '?'}</span>
+}
+
+/** 实例行（组展开后的最小单元）。 */
 function FiberRow({ fiber, selected, onSelect }: {
   fiber: FiberNode
   selected: boolean
   onSelect: (uid: string | null) => void
 }) {
-  const icon = STATE_ICONS[fiber.state] ?? '?'
   return (
     <div
-      className={`${styles.row} ${selected ? styles.rowSelected : ''}`}
-      style={{ paddingLeft: `${10 + fiber.depth * 16}px` }}
+      className={`${styles.row} ${styles.instanceRow} ${selected ? styles.rowSelected : ''}`}
       onClick={() => onSelect(fiber.uid)}
     >
-      <span className={`${styles.dot} ${styles[`state-${fiber.state}`] ?? ''}`}>{icon}</span>
-      <span className={styles.fiberName}>{fiber.name}</span>
+      <StateDot state={fiber.state} />
+      <span className={styles.instanceMeta}>uid {fiber.uid ?? '?'} · depth {fiber.depth}</span>
       <span className={styles.stateLabel}>{fiber.state}</span>
-      {fiber.missing.length > 0 && (
-        <span className={styles.waiting}>⚠ {fiber.missing.join(', ')}</span>
-      )}
-      {fiber.provides.length > 0 && (
-        <span className={styles.provides}>▸ {fiber.provides.join(', ')}</span>
-      )}
+      {fiber.missing.length > 0 && <span className={styles.waiting}>⚠ {fiber.missing.join(', ')}</span>}
+      {fiber.provides.length > 0 && <span className={styles.provides}>▸ {fiber.provides.join(', ')}</span>}
+    </div>
+  )
+}
+
+/** 分组行：逻辑插件 + 实例数 + 展开实例列表。 */
+function GroupRow({ group, fibers, expanded, onToggle, selectedUid, onSelect }: {
+  group: FiberGroup
+  fibers: FiberNode[]
+  expanded: boolean
+  onToggle: () => void
+  selectedUid: string | null
+  onSelect: (uid: string | null) => void
+}) {
+  return (
+    <div>
+      <div className={`${styles.row} ${styles.groupRow}`} onClick={onToggle}>
+        <span className={styles.caret}>{expanded ? '▾' : '▸'}</span>
+        <StateDot state={group.worst} />
+        <span className={styles.fiberName}>{group.name}</span>
+        {group.count > 1 && <span className={styles.countBadge}>×{group.count}</span>}
+        <span className={styles.stateLabel}>{group.worst}</span>
+        {group.missing.length > 0 && <span className={styles.waiting}>⚠ {group.missing.join(', ')}</span>}
+        {group.provides.length > 0 && <span className={styles.provides}>▸ {group.provides.join(', ')}</span>}
+      </div>
+      {expanded && fibers.map((fiber, index) => (
+        <FiberRow
+          key={fiber.uid ?? `${fiber.name}:${index}`}
+          fiber={fiber}
+          selected={selectedUid !== null && fiber.uid === selectedUid}
+          onSelect={onSelect}
+        />
+      ))}
     </div>
   )
 }
@@ -46,8 +78,7 @@ function FiberDetail({ fiber }: { fiber: FiberNode }) {
   return (
     <div className={styles.detail}>
       <div><b>{fiber.name}</b> <span className={styles.stateLabel}>{fiber.state}</span></div>
-      <div className={styles.detailLine}>uid: {fiber.uid ?? '(n/a)'}</div>
-      <div className={styles.detailLine}>depth: {fiber.depth} · parent: {fiber.parentUid ?? '(root)'}</div>
+      <div className={styles.detailLine}>uid: {fiber.uid ?? '(n/a)'} · depth: {fiber.depth} · parent: {fiber.parentUid ?? '(root)'}</div>
       {fiber.inject.length > 0 && (
         <div className={styles.detailLine}>
           inject: {fiber.inject.map((key) => (
@@ -66,21 +97,25 @@ function FiberDetail({ fiber }: { fiber: FiberNode }) {
 
 export function LensPanel({ state, onClose }: { state: LensState; onClose: () => void }) {
   const [selectedUid, setSelectedUid] = useState<string | null>(null)
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
+  const [showInternal, setShowInternal] = useState(false)
   const snapshot = state.snapshot
+
+  const toggleGroup = (name: string): void =>
+    setExpandedGroups((cur) => ({ ...cur, [name]: !cur[name] }))
+
+  const groups = snapshot?.groups ?? []
+  const pluginGroups = groups.filter((g) => g.kind === 'plugin')
+  const internalGroups = groups.filter((g) => g.kind === 'internal')
+  const internalCount = internalGroups.reduce((sum, g) => sum + g.count, 0)
+
+  const fibersOf = (name: string): FiberNode[] =>
+    (snapshot?.fibers ?? []).filter((f) => f.name === name)
+
   const selected = snapshot?.fibers.find((f) => f.uid !== null && f.uid === selectedUid) ?? null
+  const abnormal = groups.filter((g) => g.worst !== 'active').length
 
-  const counts = { active: 0, pending: 0, failed: 0, other: 0 }
-  if (snapshot !== null) {
-    for (const f of snapshot.fibers) {
-      if (f.state === 'active') counts.active++
-      else if (f.state === 'pending') counts.pending++
-      else if (f.state === 'failed') counts.failed++
-      else counts.other++
-    }
-  }
-
-  // createPortal 挂到 document.body：彻底跳出 slot 单元格的层叠上下文，
-  // z-index 99999 直接在根层叠上下文竞争，任何祖先 transform/filter 都压不住。
+  // createPortal 挂到 document.body：彻底跳出 slot 单元格的层叠上下文。
   return createPortal(
     <div className={styles.overlayRoot}>
       <div className={styles.panel}>
@@ -89,7 +124,7 @@ export function LensPanel({ state, onClose }: { state: LensState; onClose: () =>
           <span className={styles.stats}>
             {snapshot === null
               ? 'loading…'
-              : `${counts.active} active · ${counts.pending} pending · ${counts.failed} failed`}
+              : `${groups.length} 插件 · ${snapshot.fibers.length} 实例${abnormal > 0 ? ` · ${abnormal} 异常` : ''}`}
           </span>
           <span className={state.reachable ? styles.ok : styles.waiting}>
             {state.reachable ? `v${state.version}` : '离线'}
@@ -99,14 +134,36 @@ export function LensPanel({ state, onClose }: { state: LensState; onClose: () =>
         {state.error !== null && <div className={styles.errorBar}>{state.error}</div>}
         <div className={styles.body}>
           {snapshot === null && <div className={styles.empty}>等待首个快照…</div>}
-          {snapshot !== null && snapshot.fibers.map((fiber, index) => (
-            <FiberRow
-              key={fiber.uid ?? `${fiber.name}:${index}`}
-              fiber={fiber}
-              selected={selected !== null && selected.uid === fiber.uid && fiber.uid !== null}
+          {pluginGroups.map((group) => (
+            <GroupRow
+              key={group.name}
+              group={group}
+              fibers={expandedGroups[group.name] === true ? fibersOf(group.name) : []}
+              expanded={expandedGroups[group.name] === true}
+              onToggle={() => toggleGroup(group.name)}
+              selectedUid={selectedUid}
               onSelect={(uid) => setSelectedUid((cur) => (cur === uid ? null : uid))}
             />
           ))}
+          {internalGroups.length > 0 && (
+            <div>
+              <div className={`${styles.row} ${styles.internalHeader}`} onClick={() => setShowInternal((cur) => !cur)}>
+                <span className={styles.caret}>{showInternal ? '▾' : '▸'}</span>
+                <span className={styles.instanceMeta}>⚙ 运行时机制（Cordis Loader 内部 fiber ×{internalCount}）</span>
+              </div>
+              {showInternal && internalGroups.map((group) => (
+                <GroupRow
+                  key={group.name}
+                  group={group}
+                  fibers={expandedGroups[group.name] === true ? fibersOf(group.name) : []}
+                  expanded={expandedGroups[group.name] === true}
+                  onToggle={() => toggleGroup(group.name)}
+                  selectedUid={selectedUid}
+                  onSelect={(uid) => setSelectedUid((cur) => (cur === uid ? null : uid))}
+                />
+              ))}
+            </div>
+          )}
         </div>
         {selected !== null && <FiberDetail fiber={selected} />}
         <div className={styles.footer}>

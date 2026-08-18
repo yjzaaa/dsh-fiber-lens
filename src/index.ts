@@ -63,13 +63,78 @@ export interface LensSnapshot {
   at: number
   fibers: FiberNode[]
   services: ServiceRow[]
+  groups: FiberGroup[]
 }
 
-/** 安全读取 fiber.uid（不同 cordis 版本字段可能有变）。 */
+/** Cordis Loader 的机制性 fiber 名（非业务插件）。 */
+const INTERNAL_NAMES = new Set(['Loader', 'Hmr', 'Include', 'isolate', 'Group', 'scope'])
+
+/** 状态严重度排序：最差的排在最前。 */
+const STATE_SEVERITY = ['failed', 'pending', 'unloading', 'loading', 'disposed', 'active']
+
+/** 同名 fiber 的分组聚合行：264 个实例 → 百余个插件的逻辑视图。 */
+export interface FiberGroup {
+  name: string
+  /** internal = Cordis Loader 机制 fiber；plugin = 业务插件。 */
+  kind: 'internal' | 'plugin'
+  /** 实例数（同插件按 session/agent 作用域多次挂载）。 */
+  count: number
+  /** 各状态实例数。 */
+  states: Record<string, number>
+  /** 组内最严重状态。 */
+  worst: string
+  /** 组内实例提供的服务并集。 */
+  provides: string[]
+  /** 组内实例缺失的依赖并集。 */
+  missing: string[]
+}
+
+/** 按名称聚合 fiber 实例为逻辑插件组。 */
+export function groupFibers(fibers: FiberNode[]): FiberGroup[] {
+  const groups = new Map<string, FiberGroup>()
+  for (const fiber of fibers) {
+    let group = groups.get(fiber.name)
+    if (group === undefined) {
+      group = {
+        name: fiber.name,
+        kind: INTERNAL_NAMES.has(fiber.name) ? 'internal' : 'plugin',
+        count: 0,
+        states: {},
+        worst: 'active',
+        provides: [],
+        missing: [],
+      }
+      groups.set(fiber.name, group)
+    }
+    group.count++
+    group.states[fiber.state] = (group.states[fiber.state] ?? 0) + 1
+    for (const service of fiber.provides) {
+      if (!group.provides.includes(service)) group.provides.push(service)
+    }
+    for (const service of fiber.missing) {
+      if (!group.missing.includes(service)) group.missing.push(service)
+    }
+  }
+  const severity = (state: string): number => {
+    const index = STATE_SEVERITY.indexOf(state)
+    return index < 0 ? STATE_SEVERITY.length : index
+  }
+  for (const group of groups.values()) {
+    group.worst = Object.keys(group.states).sort((a, b) => severity(a) - severity(b))[0] ?? 'active'
+    group.provides.sort()
+    group.missing.sort()
+  }
+  return [...groups.values()].sort((a, b) =>
+    severity(a.worst) - severity(b.worst) || b.count - a.count || a.name.localeCompare(b.name))
+}
+
+/** 安全读取 fiber.uid（cordis 类型为 number | null，统一转字符串上线）。 */
 function fiberUid(fiber: Fiber): string | null {
   try {
     const uid = (fiber as { uid?: unknown }).uid
-    return typeof uid === 'string' ? uid : null
+    if (typeof uid === 'number') return String(uid)
+    if (typeof uid === 'string') return uid
+    return null
   } catch {
     return null
   }
@@ -148,7 +213,7 @@ export function buildSnapshot(ctx: Context, version: number): LensSnapshot {
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
 
-  return { version, at: Date.now(), fibers, services }
+  return { version, at: Date.now(), fibers, services, groups: groupFibers(fibers) }
 }
 
 /** 写 JSON 响应。 */

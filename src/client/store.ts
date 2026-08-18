@@ -24,11 +24,23 @@ export interface ServiceRow {
   ownerState: string
 }
 
+/** 同名 fiber 的分组聚合行（Host 计算）：264 个实例 → 百余个逻辑插件。 */
+export interface FiberGroup {
+  name: string
+  kind: 'internal' | 'plugin'
+  count: number
+  states: Record<string, number>
+  worst: string
+  provides: string[]
+  missing: string[]
+}
+
 export interface LensSnapshot {
   version: number
   at: number
   fibers: FiberNode[]
   services: ServiceRow[]
+  groups: FiberGroup[]
 }
 
 export interface LensState {
