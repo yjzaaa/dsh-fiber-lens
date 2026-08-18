@@ -1,0 +1,5 @@
+# dsh-fiber-lens bundle patch：把插件挂进 profile 层叠栈。
+# 运行时默认值在插件 config 边界；用户在 profile patch 行里按同 id 覆盖。
+- insert:
+    - id: fiber-lens
+      name: 'dsh-fiber-lens'
