@@ -19,40 +19,40 @@
     "noEmitOnError": true,
     "paths": {
       "@deepseek-ai/dsh-host-webserver": [
-        "D:/AI-Projects/deepseek-harness/packages/host/webserver/lib/types/index.d.ts"
+        "D:/deepseek-harness-master/deepseek-harness-master/packages/host/webserver/lib/types/index.d.ts"
       ],
       "@deepseek-ai/dsh-session": [
-        "D:/AI-Projects/deepseek-harness/packages/core/session/lib/types/index.d.ts"
+        "D:/deepseek-harness-master/deepseek-harness-master/packages/core/session/lib/types/index.d.ts"
       ],
       "@deepseek-ai/dsh-llm": [
-        "D:/AI-Projects/deepseek-harness/packages/llm/llm/lib/types/index.d.ts"
+        "D:/deepseek-harness-master/deepseek-harness-master/packages/llm/llm/lib/types/index.d.ts"
       ],
       "@deepseek-ai/dsh-brand": [
-        "D:/AI-Projects/deepseek-harness/packages/util/brand/lib/types/index.d.ts"
+        "D:/deepseek-harness-master/deepseek-harness-master/packages/util/brand/lib/types/index.d.ts"
       ],
       "@deepseek-ai/dsh-client-runtime": [
-        "D:/AI-Projects/deepseek-harness/packages/client/runtime/lib/types/index.d.ts"
+        "D:/deepseek-harness-master/deepseek-harness-master/packages/client/runtime/lib/types/index.d.ts"
       ],
       "@deepseek-ai/dsh-client-runtime/client": [
-        "D:/AI-Projects/deepseek-harness/packages/client/runtime/lib/types/client/index.d.ts"
+        "D:/deepseek-harness-master/deepseek-harness-master/packages/client/runtime/lib/types/client/index.d.ts"
       ],
       "@deepseek-ai/dsh-client-ui-slots": [
-        "D:/AI-Projects/deepseek-harness/packages/client/ui-slots/lib/types/index.d.ts"
+        "D:/deepseek-harness-master/deepseek-harness-master/packages/client/ui-slots/lib/types/index.d.ts"
       ],
       "@deepseek-ai/dsh-client-ui-layout/client": [
-        "D:/AI-Projects/deepseek-harness/packages/client/ui-layout/lib/types/client/index.d.ts"
+        "D:/deepseek-harness-master/deepseek-harness-master/packages/client/ui-layout/lib/types/client/index.d.ts"
       ],
       "@deepseek-ai/dsh-client-ui-sidebar/client": [
-        "D:/AI-Projects/deepseek-harness/packages/client/ui-sidebar/lib/types/client/index.d.ts"
+        "D:/deepseek-harness-master/deepseek-harness-master/packages/client/ui-sidebar/lib/types/client/index.d.ts"
       ],
       "react": [
-        "D:/AI-Projects/deepseek-harness/node_modules/.pnpm/@types+react@18.3.31/node_modules/@types/react/index.d.ts"
+        "D:/deepseek-harness-master/deepseek-harness-master/node_modules/.pnpm/@types+react@18.3.31/node_modules/@types/react/index.d.ts"
       ],
       "react/jsx-runtime": [
-        "D:/AI-Projects/deepseek-harness/node_modules/.pnpm/@types+react@18.3.31/node_modules/@types/react/jsx-runtime.d.ts"
+        "D:/deepseek-harness-master/deepseek-harness-master/node_modules/.pnpm/@types+react@18.3.31/node_modules/@types/react/jsx-runtime.d.ts"
       ],
       "react-dom": [
-        "D:/AI-Projects/deepseek-harness/node_modules/.pnpm/@types+react-dom@18.3.7_@types+react@18.3.31/node_modules/@types/react-dom/index.d.ts"
+        "D:/deepseek-harness-master/deepseek-harness-master/node_modules/.pnpm/@types+react-dom@18.3.7_@types+react@18.3.31/node_modules/@types/react-dom/index.d.ts"
       ]
     }
   },

@@ -35,31 +35,20 @@ export interface FiberGroup {
   missing: string[]
 }
 
+export interface FiberActivity {
+  heat: number
+  lastEventAt: number
+  eventCount: number
+}
+
 export interface LensSnapshot {
   version: number
   at: number
   fibers: FiberNode[]
   services: ServiceRow[]
   groups: FiberGroup[]
-}
-
-/** 面板镜头：机制镜头（全量 fiber 树）/ 会话镜头（当前会话参与集）。 */
-export type LensKind = 'mechanism' | 'session'
-
-/** 一条在飞调用（与 Host 侧同构的线上协议）。 */
-export interface InflightEntry {
-  callId: string
-  fiberName: string
-  toolName: string
-  argsSummary: string
-  gate: string
-}
-
-/** 参与查询结果（与 Host 侧同构）。 */
-export interface ParticipationSnapshot {
-  session: string | null
-  participants: string[]
-  inflight: InflightEntry[]
+  /** 每个 fiber 的活动热度（零依赖推断）。 */
+  activities: Record<string, FiberActivity>
 }
 
 export interface LensState {
@@ -68,14 +57,6 @@ export interface LensState {
   snapshot: LensSnapshot | null
   reachable: boolean
   error: string | null
-  /** 当前镜头；轮询循环需要它决定是否拉参与集，故进 store。 */
-  lens: LensKind
-  /** 用户是否显式切过镜头（默认镜头规则只生效一次：有会话时会话镜头）。 */
-  lensTouched: boolean
-  /** 当前会话 id（来自宿主 useSessions 全局标准件）；无当前会话为 null。 */
-  sessionId: string | null
-  /** 会话镜头的参与数据；lens !== 'session' 或无当前会话时为 null。 */
-  participation: ParticipationSnapshot | null
 }
 
 export interface FiberLensStore {
@@ -91,10 +72,6 @@ export function createFiberLensStore(): FiberLensStore {
     snapshot: null,
     reachable: true,
     error: null,
-    lens: 'mechanism',
-    lensTouched: false,
-    sessionId: null,
-    participation: null,
   }
   const listeners = new Set<() => void>()
   return {

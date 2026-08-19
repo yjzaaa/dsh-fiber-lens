@@ -7,14 +7,11 @@
  * ctx.inject 回调式可选挂载：无 web 环境时插件照常加载，只是没有路由。
  *
  * 路由（同源 JSON）：
- *   GET /api/fiber-lens/ping          → { version }                     轻量心跳
- *   GET /api/fiber-lens/snapshot      → { version, at, fibers, services }  全量快照
- *   GET /api/fiber-lens/participation → { ok, session, participants, inflight }  会话参与集
+ *   GET /api/fiber-lens/ping          → { version }                        轻量心跳
+ *   GET /api/fiber-lens/snapshot      → { version, at, fibers, services, groups }  全量快照
  *
  * version 由 internal/status / internal/plugin / internal/service 事件
  * 驱动递增；浏览器侧每秒 ping，version 变化才拉全量快照。
- * 参与集由 session/created + session/event 推导（见 participation.ts），
- * 会话存储走查询式 ctx.get('sessions') 追赶——零硬 inject 原则的延伸。
  * @module dsh-fiber-lens
  */
 import type { Context, Fiber } from '@deepseek-ai/cordis'
@@ -22,10 +19,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 // Type-only side-effect import: pull the webServer Context augmentation in.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-// Type-only side-effect import: session/created、session/event、session/disposed 的 Events 声明合并。
-import type {} from '@deepseek-ai/dsh-session'
-import type { Session } from '@deepseek-ai/dsh-session'
-import { ParticipationTracker } from './participation.ts'
 
 export const name = 'fiber-lens'
 
@@ -71,6 +64,18 @@ export interface LensSnapshot {
   fibers: FiberNode[]
   services: ServiceRow[]
   groups: FiberGroup[]
+  /** 每个 fiber 的活动热度（零依赖推断）。 */
+  activities: Record<string, FiberActivity>
+}
+
+/** Fiber 活动记录（零依赖版本）。 */
+export interface FiberActivity {
+  /** 热度 0-1，基于内核事件频率推断。 */
+  heat: number
+  /** 最后事件时间戳。 */
+  lastEventAt: number
+  /** 累计事件数。 */
+  eventCount: number
 }
 
 /** Cordis Loader 的机制性 fiber 名（非业务插件）。 */
@@ -176,7 +181,11 @@ function liveImpls(ctx: Context): { name: string; fiber: Fiber }[] {
 }
 
 /** 构建全量快照。 */
-export function buildSnapshot(ctx: Context, version: number): LensSnapshot {
+export function buildSnapshot(
+  ctx: Context,
+  version: number,
+  activities: Map<string, FiberActivity>,
+): LensSnapshot {
   const impls = liveImpls(ctx)
   const byFiber = new Map<Fiber, string[]>()
   for (const impl of impls) {
@@ -220,7 +229,20 @@ export function buildSnapshot(ctx: Context, version: number): LensSnapshot {
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
 
-  return { version, at: Date.now(), fibers, services, groups: groupFibers(fibers) }
+  // 转换 activities Map 为 Record
+  const activityRecord: Record<string, FiberActivity> = {}
+  for (const [uid, activity] of activities) {
+    activityRecord[uid] = activity
+  }
+
+  return {
+    version,
+    at: Date.now(),
+    fibers,
+    services,
+    groups: groupFibers(fibers),
+    activities: activityRecord,
+  }
 }
 
 /** 写 JSON 响应。 */
@@ -238,34 +260,67 @@ export function apply(ctx: Context): void {
   ctx.on('internal/plugin', bump)
   ctx.on('internal/service', bump)
 
+  // ===== Activity 追踪（零依赖版本）=====
+  // 基于 Cordis 内核事件频率推断 fiber 活跃度。
+  const activities = new Map<string, FiberActivity>()
+  const HEAT_INCREMENT = 0.3
+  const HEAT_DECAY = 0.95
+  const HEAT_INTERVAL_MS = 1000
+
+  function recordActivity(fiberUid: string): void {
+    let activity = activities.get(fiberUid)
+    if (activity === undefined) {
+      activity = { heat: 0, lastEventAt: Date.now(), eventCount: 0 }
+      activities.set(fiberUid, activity)
+    }
+    activity.heat = Math.min(1, activity.heat + HEAT_INCREMENT)
+    activity.lastEventAt = Date.now()
+    activity.eventCount++
+    bump() // 活动变化也触发版本更新
+  }
+
+  // 监听内核事件，记录 activity
+  ctx.on('internal/status', (fiber) => {
+    const uid = fiberUid(fiber)
+    if (uid !== null) recordActivity(uid)
+  })
+
+  ctx.on('internal/plugin', () => {
+    // 插件变化时，所有 fiber 可能有活动
+    // 不针对特定 fiber，而是全局 bump
+    bump()
+  })
+
+  ctx.on('internal/service', () => {
+    // 服务变化时，所有 fiber 可能有活动
+    bump()
+  })
+
+  // 热度衰减定时器
+  const decayTimer = setInterval(() => {
+    let hasChange = false
+    for (const [uid, activity] of activities) {
+      const oldHeat = activity.heat
+      activity.heat *= HEAT_DECAY
+      if (activity.heat < 0.01) {
+        activities.delete(uid)
+      }
+      if (Math.abs(activity.heat - oldHeat) > 0.001) {
+        hasChange = true
+      }
+    }
+    if (hasChange) bump()
+  }, HEAT_INTERVAL_MS)
+
   // 快照缓存：version 变化即作废，下一次 snapshot 请求重建。
   let cached: LensSnapshot | undefined
   let cachedVersion = -1
   const snapshot = (): LensSnapshot => {
     if (cached === undefined || cachedVersion !== version) {
-      cached = buildSnapshot(ctx, version)
+      cached = buildSnapshot(ctx, version, activities)
       cachedVersion = version
     }
     return cached
-  }
-
-  // 会话参与集 + 在飞跟踪（P2）：session 事件流驱动，工具→fiber 走命名约定映射。
-  const tracker = new ParticipationTracker(() => new Set(snapshot().fibers.map((fiber) => fiber.name)))
-  ctx.on('session/created', (session) => tracker.noteSession(session))
-  ctx.on('session/event', (session, event) => tracker.noteEvent(session, event))
-  ctx.on('session/disposed', (session) => tracker.dropSession(String(session.id)))
-
-  /**
-   * 插件加载前已存在的会话没有 created 事件，端点按 id 做一次性追赶。
-   * 查询式 ctx.get('sessions')：服务缺席时静默降级为空参与集（零硬 inject）。
-   */
-  const catchUp = (sessionId: string): void => {
-    if (tracker.has(sessionId)) return
-    // dsh-session 与 dsh-client-runtime 都向 Context 合并 sessions 属性（类型面冲突由
-    // skipLibCheck 吸收），此处按结构面窄化，不依赖任一合并结果。
-    const store = ctx.get('sessions') as unknown as { get(id: string): Session | undefined } | undefined
-    const session = store?.get(sessionId)
-    if (session !== undefined) tracker.noteSession(session)
   }
 
   const routes: WebRoute[] = [
@@ -298,27 +353,6 @@ export function apply(ctx: Context): void {
         }
       },
     },
-    {
-      kind: 'exact',
-      path: `${API_PREFIX}/participation`,
-      handler: (req: IncomingMessage, res: ServerResponse): void => {
-        if (req.method !== 'GET') {
-          json(res, 405, { ok: false, error: 'method-not-allowed' })
-          return
-        }
-        try {
-          const sessionParam = new URL(req.url ?? '/', 'http://fiber-lens.local').searchParams.get('session')
-          const sessionId = sessionParam === null || sessionParam === '' ? null : sessionParam
-          if (sessionId !== null) catchUp(sessionId)
-          json(res, 200, { ok: true, ...tracker.query(sessionId) })
-        } catch (error) {
-          json(res, 500, {
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
-          })
-        }
-      },
-    },
   ]
 
   // webServer 是可选能力：web profile 提供它，headless/CLI 没有。
@@ -331,4 +365,11 @@ export function apply(ctx: Context): void {
       }
     }, 'fiber-lens: routes')
   })
+
+  // 清理定时器
+  ctx.effect(() => {
+    return () => {
+      clearInterval(decayTimer)
+    }
+  }, 'fiber-lens: activity decay')
 }

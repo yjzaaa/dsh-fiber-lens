@@ -151,13 +151,36 @@
 .provides { color: #22d3ee; font-size: 10px; }
 .ok { color: #34d399; font-size: 10px; }
 
-.detail {
-  border-top: 1px solid var(--dsw-alias-border-l2, #334155);
-  padding: 10px 14px;
-  font-size: 11px;
+/* ===== 焦点链（focus chain）===== */
+
+/* 服务依赖边：实线 + 箭头，主题边线色 */
+.dagChainEdge {
+  stroke: var(--dsw-alias-border-l2, #475569);
+  stroke-width: 1.4;
+  fill: none;
 }
 
-.detailLine { margin-top: 4px; color: var(--dsw-alias-label-tertiary, #94a3b8); }
+.dagArrowHead { fill: var(--dsw-alias-border-l2, #475569); }
+
+/* 边中点的服务名标签 */
+.dagEdgeLabel {
+  fill: var(--dsw-alias-label-tertiary, #94a3b8);
+  font-size: 9px;
+  font-family: inherit;
+}
+
+/* 焦点节点：发光描边（唯一常驻呼吸动画的宿主） */
+.dagFocus {
+  stroke-width: 2.2;
+  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.55));
+}
+
+/* hop 角标（+1 / -1） */
+.dagHop {
+  fill: var(--dsw-alias-label-tertiary, #94a3b8);
+  font-size: 8px;
+  font-family: inherit;
+}
 
 .footer {
   border-top: 1px solid var(--dsw-alias-border-l2, #334155);
@@ -195,8 +218,11 @@
   color: var(--dsw-alias-state-business-primary, #22d3ee);
 }
 
-/* DAG 模式下画布更宽，容纳左→右分层树。 */
-.panelDag { width: 780px; }
+/* DAG 模式下画布更宽，容纳左→右分层树（±3 跳焦点链至少需要 1100px）。 */
+.panelDag { width: 1100px; }
+
+/* 关闭时只隐藏不卸载：保持 FocusCanvas 视口 transform 等组件状态存活。 */
+.panelHidden { display: none; }
 
 .bodyDag {
   flex: 1;
@@ -223,22 +249,9 @@
 }
 .dagSvgPanning { cursor: grabbing; }
 
-.dagEdge {
-  fill: none;
-  stroke: var(--color-text-muted, #64748b);
-  stroke-width: 1;
-  opacity: 0.7;
-}
-
 .dagNode { cursor: pointer; }
 
 .dagNodeRect { stroke-width: 1.2; }
-
-/* 选中描边环：套在状态色 rect 之上。 */
-.dagSelected {
-  stroke: var(--dsw-alias-label-primary, #e2e8f0);
-  stroke-width: 2.2;
-}
 
 .dagLabel {
   fill: var(--dsw-alias-label-primary, #e2e8f0);
@@ -246,27 +259,10 @@
   pointer-events: none;
 }
 
-.dagBadgeRect {
-  fill: color-mix(in srgb, var(--dsw-alias-state-business-primary, #22d3ee) 15%, transparent);
-  stroke: var(--dsw-alias-state-business-primary, #22d3ee);
-  stroke-width: 1;
-}
 .dagBadgeText {
   fill: var(--dsw-alias-state-business-primary, #22d3ee);
   font-size: 9px;
   font-weight: 700;
-  pointer-events: none;
-}
-
-/* FULL 档选中节点的 inject/provides 详情底卡（不透明，盖在下方行之上）。 */
-.dagDetailBox {
-  fill: var(--dsw-alias-bg-layer-2, #0f172a);
-  stroke: var(--dsw-alias-border-l2, #334155);
-  stroke-width: 1;
-}
-.dagDetailText {
-  fill: var(--dsw-alias-label-tertiary, #94a3b8);
-  font-size: 9px;
   pointer-events: none;
 }
 
@@ -294,59 +290,183 @@
 .solid-failed { fill: #fb7185; }
 .solid-disposed { fill: #64748b; }
 
-/* ---- diff 驱动动画（设计 v0.4 §6：全部有限、diff 触发、有明确结束态） ---- */
+/* ---- 状态 morph 过渡（class 切换驱动；enter/leave/morph 关键帧见文末 v0.5 §5 块） ---- */
 
-/* 状态变化：颜色 morph 400ms（class 切换驱动 fill/stroke 过渡）。 */
+/* 状态变化：颜色 morph 400ms。 */
 .dagNodeRect { transition: fill 400ms ease, stroke 400ms ease; }
 .dagNode circle { transition: fill 400ms ease; }
 .dagNode { transition: opacity 300ms ease, filter 300ms ease; }
 
-/* 新增节点：pop-in（scale 0.6→1 + fade）。transform-box 让 scale 以节点自身为原点。 */
+/* ---- Heat 活动热度叠加（零依赖推断） ---- */
+
+/* Warm：呼吸效果 */
+.dagNodeWarm {
+  animation: nodeBreathe 3s ease-in-out infinite;
+}
+
+@keyframes nodeBreathe {
+  0%, 100% { 
+    stroke-opacity: 0.6;
+    filter: drop-shadow(0 0 2px rgba(52, 211, 153, 0.1));
+  }
+  50% { 
+    stroke-opacity: 1;
+    filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.25));
+  }
+}
+
+/* Hot：脉冲发光 */
+.dagNodeHot {
+  animation: nodePulse 1.5s ease-in-out infinite;
+}
+
+.dagNodeAnim {
+  /* 确保动画元素有正确的 transform-box */
+  transform-box: fill-box;
+}
+
+@keyframes nodePulse {
+  0%, 100% { 
+    stroke-width: 1.5;
+    filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.3));
+  }
+  50% { 
+    stroke-width: 2.5;
+    filter: drop-shadow(0 0 12px rgba(34, 211, 238, 0.6));
+  }
+}
+
+/* Heat 指示点 */
+.heatDot {
+  transition: fill 400ms ease;
+}
+
+.heatDotWarm {
+  fill: rgba(52, 211, 153, 0.8);
+}
+
+.heatDotHot {
+  fill: #22d3ee;
+  animation: heatDotPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes heatDotPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* ---- diff 驱动动画（设计 v0.5 §5：视口授予 + 一次性消费 + 合并窗口） ---- */
+
+/* 新增节点：pop-in（scale 0.6→1 + fade） */
 .dagEnter {
   animation: dagPop 400ms cubic-bezier(0.22, 1, 0.36, 1);
   transform-box: fill-box;
   transform-origin: center;
 }
+
 @keyframes dagPop {
   from { opacity: 0; transform: scale(0.6); }
   to { opacity: 1; transform: scale(1); }
 }
 
-/* 消失节点：灰化淡出 400ms 后由 JS 移除（transitions.ts 的 LEAVE_MS 同步）。 */
+/* 消失节点：灰化淡出 400ms 后由 JS 移除 */
 .dagLeave {
   animation: dagFadeOut 400ms ease forwards;
   pointer-events: none;
   filter: grayscale(1);
 }
+
 @keyframes dagFadeOut {
   from { opacity: 0.8; }
   to { opacity: 0; }
 }
 
-/* ---- 会话镜头三态（设计 §5.1） ---- */
-
-/* 已参与：暗色 40% 不透明度。 */
-.sessionDim { opacity: 0.4; }
-
-/* 正在经手：全不透明 + 发光描边（drop-shadow 对 SVG 元素有效；filter 过渡即发光淡入淡出）。 */
-.sessionLive { opacity: 1; filter: drop-shadow(0 0 6px var(--dsw-alias-state-business-primary, rgba(34, 211, 238, 0.85))); }
-.sessionLive .dagNodeRect { stroke-width: 2; }
-
-/* 在飞操作行：节点标签下方的参数摘要 + 关口。 */
-.sessionInflightText {
-  fill: var(--dsw-alias-state-business-primary, #22d3ee);
-  font-size: 9px;
-  pointer-events: none;
+/* 状态变化 morph：颜色过渡由 .dagNodeRect 的 transition 承担，
+   这里加一个短暂的脉冲环提示变化发生 */
+.dagMorph {
+  animation: dagMorphPulse 400ms ease;
 }
 
-/* reduced-motion 回退：全部动画/过渡回退为静态状态色（设计 §6 纪律）。 */
+@keyframes dagMorphPulse {
+  0% { filter: drop-shadow(0 0 0 transparent); }
+  50% { filter: drop-shadow(0 0 8px currentColor); }
+  100% { filter: drop-shadow(0 0 0 transparent); }
+}
+
+/* ---- 事件 ticker（设计 v0.5 §7：右侧 180px，最近 20 条状态流转，点击聚焦跳转） ---- */
+.tickerCol {
+  width: 180px;
+  flex: none;
+  overflow-y: auto;
+  border-left: 1px solid var(--dsw-alias-border-l2, #334155);
+  padding: 6px 8px;
+  background: var(--dsw-alias-bg-layer-1, rgba(2, 6, 23, 0.6));
+}
+
+.tickerTitle {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--dsw-alias-label-tertiary, #94a3b8);
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #334155);
+}
+
+.tickerEmpty {
+  font-size: 10px;
+  color: var(--dsw-alias-label-tertiary, #94a3b8);
+  padding: 6px 0;
+}
+
+/* 新事件顶部滑入（200ms，一次性；reduced-motion 静态回退见文末）。 */
+.tickerItem {
+  font-size: 10px;
+  line-height: 1.5;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  word-break: break-all;
+  animation: tickerIn 200ms ease;
+}
+.tickerItem:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(148, 163, 184, 0.08)); }
+
+@keyframes tickerIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---- 镜头飞行（设计 v0.5 §3.3：焦点切换 300ms CSS transition，不瞬移） ---- */
+
+/* 相机容器仅在飞行中挂过渡：手动平移/缩放不经过此类，保持跟手。
+   transform 由 inline style 驱动（translate + scale，transform-origin: 0 0）。 */
+.dagCameraFly {
+  transition: transform 300ms ease;
+}
+
+/* reduced-motion 全量静态回退（设计 v0.5 §5.7）：零动画零过渡，直接呈现最终状态。 */
 @media (prefers-reduced-motion: reduce) {
-  .dagRoot .dagNode,
-  .dagRoot .dagNodeRect,
-  .dagRoot .dagNode circle,
-  .dagRoot .dagEnter,
-  .dagRoot .dagLeave {
-    animation: none;
+  /* 全部过渡关闭：状态 morph / 透明度 / heat 指示点颜色 / 镜头飞行一律瞬时落定。 */
+  .dagNodeRect,
+  .dagNode circle,
+  .dagNode,
+  .heatDot,
+  .dagCameraFly {
     transition: none;
   }
+
+  /* 全部关键帧动画关闭：enter pop / leave 淡出 / morph 脉冲 /
+     warm 呼吸 / hot 脉冲 / 热点评脉 / ticker 滑入。 */
+  .dagEnter,
+  .dagLeave,
+  .dagMorph,
+  .dagNodeWarm,
+  .dagNodeHot,
+  .heatDotHot,
+  .tickerItem {
+    animation: none;
+  }
+
+  /* dagLeave 原以 forwards 定格 opacity 0；静态回退直接给最终态，
+     避免淡出动画缺失时残影停留到 JS 移除。 */
+  .dagLeave { opacity: 0; }
 }

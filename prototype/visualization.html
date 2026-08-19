@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dsh-fiber-lens 可视化原型</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --bg-panel: rgba(15, 23, 42, 0.96);
+    --border: #334155;
+    --text-primary: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --text-tertiary: #64748b;
+    
+    /* 状态色 */
+    --state-active: #34d399;
+    --state-pending: #fbbf24;
+    --state-loading: #22d3ee;
+    --state-failed: #fb7185;
+    --state-disposed: #64748b;
+    
+    /* 活动色 */
+    --activity-inflight: #22d3ee;
+    --activity-warm: #34d399;
+  }
+  
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: ui-monospace, 'JetBrains Mono', Consolas, monospace;
+    font-size: 12px;
+    padding: 40px;
+  }
+  
+  h1 { font-size: 16px; margin-bottom: 8px; color: var(--text-primary); }
+  h2 { font-size: 13px; margin: 24px 0 12px; color: var(--text-secondary); }
+  
+  .section {
+    margin-bottom: 32px;
+    padding: 20px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-panel);
+  }
+  
+  /* ===== 节点基础样式 ===== */
+  .node {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid;
+    margin: 4px;
+    min-width: 140px;
+    position: relative;
+    transition: all 400ms ease;
+  }
+  
+  .node-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  
+  .node-name {
+    font-weight: 600;
+    font-size: 11px;
+  }
+  
+  .node-state {
+    font-size: 9px;
+    color: var(--text-tertiary);
+    margin-left: auto;
+  }
+  
+  /* ===== Lifecycle 状态色 ===== */
+  .node.active {
+    background: rgba(52, 211, 153, 0.12);
+    border-color: rgba(52, 211, 153, 0.4);
+  }
+  .node.active .node-dot { background: var(--state-active); }
+  
+  .node.pending {
+    background: rgba(251, 191, 36, 0.12);
+    border-color: rgba(251, 191, 36, 0.4);
+  }
+  .node.pending .node-dot { background: var(--state-pending); }
+  
+  .node.loading {
+    background: rgba(34, 211, 238, 0.12);
+    border-color: rgba(34, 211, 238, 0.4);
+  }
+  .node.loading .node-dot { background: var(--state-loading); }
+  
+  .node.failed {
+    background: rgba(251, 113, 133, 0.12);
+    border-color: rgba(251, 113, 133, 0.4);
+  }
+  .node.failed .node-dot { background: var(--state-failed); }
+  
+  .node.disposed {
+    background: rgba(100, 116, 139, 0.08);
+    border-color: rgba(100, 116, 139, 0.25);
+    opacity: 0.5;
+  }
+  .node.disposed .node-dot { background: var(--state-disposed); }
+  
+  /* ===== Activity 叠加 ===== */
+  
+  /* inactive: 基础状态，无叠加 */
+  
+  /* warm: 呼吸效果 */
+  .node.warm {
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0);
+    animation: breathe 3s ease-in-out infinite;
+  }
+  
+  @keyframes breathe {
+    0%, 100% { 
+      box-shadow: 0 0 0 0 rgba(52, 211, 153, 0);
+      border-color: rgba(52, 211, 153, 0.4);
+    }
+    50% { 
+      box-shadow: 0 0 12px 2px rgba(52, 211, 153, 0.15);
+      border-color: rgba(52, 211, 153, 0.7);
+    }
+  }
+  
+  /* inflight: 脉冲发光 */
+  .node.inflight {
+    animation: pulse 1.5s ease-in-out infinite;
+    border-width: 1.5px;
+  }
+  
+  .node.inflight::before {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: 8px;
+    border: 1.5px solid var(--activity-inflight);
+    opacity: 0;
+    animation: ring 1.5s ease-in-out infinite;
+    pointer-events: none;
+  }
+  
+  @keyframes pulse {
+    0%, 100% { 
+      background: rgba(34, 211, 238, 0.15);
+      border-color: rgba(34, 211, 238, 0.5);
+    }
+    50% { 
+      background: rgba(34, 211, 238, 0.25);
+      border-color: rgba(34, 211, 238, 0.9);
+    }
+  }
+  
+  @keyframes ring {
+    0% { opacity: 0.6; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.08); }
+  }
+  
+  /* inflight 标签 */
+  .node.inflight .node-op {
+    position: absolute;
+    top: -18px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    color: var(--activity-inflight);
+    white-space: nowrap;
+    background: rgba(15, 23, 42, 0.9);
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid rgba(34, 211, 238, 0.3);
+  }
+  
+  /* ===== 方案对比 ===== */
+  
+  .compare-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  
+  .compare-item {
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  
+  .compare-item h3 {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+  }
+  
+  /* ===== 控制面板 ===== */
+  .controls {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  
+  .control-btn {
+    padding: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 150ms ease;
+  }
+  
+  .control-btn:hover {
+    border-color: var(--text-secondary);
+    color: var(--text-primary);
+  }
+  
+  .control-btn.active {
+    background: rgba(77, 107, 254, 0.15);
+    border-color: var(--activity-inflight);
+    color: var(--activity-inflight);
+  }
+  
+  /* ===== 全局视图原型 ===== */
+  .global-view {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .session-group {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+  }
+  
+  .session-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  
+  .session-status {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--state-disposed);
+  }
+  
+  .session-status.active {
+    background: var(--state-active);
+    box-shadow: 0 0 6px var(--state-active);
+  }
+  
+  .system-group {
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    opacity: 0.8;
+  }
+</style>
+</head>
+<body>
+
+<h1>🔬 dsh-fiber-lens 可视化原型</h1>
+<p style="color: var(--text-tertiary); margin-bottom: 24px;">
+  测试 lifecycle × activity 的视觉编码方案
+</p>
+
+<!-- 控制面板 -->
+<div class="section">
+  <h2>控制面板</h2>
+  <div class="controls">
+    <button class="control-btn active" onclick="setMode('combined')">组合模式 (推荐)</button>
+    <button class="control-btn" onclick="setMode('lifecycle')">仅 Lifecycle</button>
+    <button class="control-btn" onclick="setMode('activity')">仅 Activity</button>
+    <button class="control-btn" onclick="toggleAnimation()">切换动画</button>
+  </div>
+</div>
+
+<!-- 方案 1: 组合模式 -->
+<div class="section" id="combined">
+  <h2>方案 A: 组合模式 (lifecycle + activity 叠加)</h2>
+  <p style="color: var(--text-tertiary); margin-bottom: 12px;">
+    基础色 = lifecycle state，动画/亮度 = activity
+  </p>
+  
+  <div>
+    <div class="node active">
+      <span class="node-dot"></span>
+      <span class="node-name">agent-loop</span>
+      <span class="node-state">active</span>
+    </div>
+    
+    <div class="node active warm">
+      <span class="node-dot"></span>
+      <span class="node-name">tool-web</span>
+      <span class="node-state">warm</span>
+    </div>
+    
+    <div class="node active inflight">
+      <span class="node-op">tool:bash</span>
+      <span class="node-dot"></span>
+      <span class="node-name">tool-bash</span>
+      <span class="node-state">inflight</span>
+    </div>
+    
+    <div class="node pending">
+      <span class="node-dot"></span>
+      <span class="node-name">subagent</span>
+      <span class="node-state">pending</span>
+    </div>
+    
+    <div class="node active">
+      <span class="node-dot"></span>
+      <span class="node-name">settings</span>
+      <span class="node-state">idle</span>
+    </div>
+    
+    <div class="node disposed">
+      <span class="node-dot"></span>
+      <span class="node-name">old-plugin</span>
+      <span class="node-state">disposed</span>
+    </div>
+    
+    <div class="node failed">
+      <span class="node-dot"></span>
+      <span class="node-name">broken-tool</span>
+      <span class="node-state">failed</span>
+    </div>
+  </div>
+</div>
+
+<!-- 方案 2: 全局视图 -->
+<div class="section">
+  <h2>方案 B: 全局视图 (Session 分组)</h2>
+  
+  <div class="global-view">
+    <div class="session-group">
+      <div class="session-header">
+        <span class="session-status active"></span>
+        <span>Session A (user-123)</span>
+        <span style="margin-left: auto; color: var(--text-tertiary);">2 active</span>
+      </div>
+      <div>
+        <div class="node active inflight">
+          <span class="node-op">reasoning</span>
+          <span class="node-dot"></span>
+          <span class="node-name">agent-loop</span>
+          <span class="node-state">inflight</span>
+        </div>
+        <div class="node active">
+          <span class="node-dot"></span>
+          <span class="node-name">tool-web</span>
+          <span class="node-state">idle</span>
+        </div>
+        <div class="node active warm">
+          <span class="node-dot"></span>
+          <span class="node-name">tool-fs</span>
+          <span class="node-state">warm</span>
+        </div>
+      </div>
+    </div>
+    
+    <div class="session-group">
+      <div class="session-header">
+        <span class="session-status active"></span>
+        <span>Session B (user-456)</span>
+        <span style="margin-left: auto; color: var(--text-tertiary);">1 active</span>
+      </div>
+      <div>
+        <div class="node active">
+          <span class="node-dot"></span>
+          <span class="node-name">agent-loop</span>
+          <span class="node-state">idle</span>
+        </div>
+        <div class="node active inflight">
+          <span class="node-op">subagent:spawn</span>
+          <span class="node-dot"></span>
+          <span class="node-name">subagent-control</span>
+          <span class="node-state">inflight</span>
+        </div>
+      </div>
+    </div>
+    
+    <div class="system-group">
+      <div class="session-header">
+        <span class="session-status"></span>
+        <span>System</span>
+        <span style="margin-left: auto; color: var(--text-tertiary);">idle</span>
+      </div>
+      <div>
+        <div class="node active">
+          <span class="node-dot"></span>
+          <span class="node-name">web-server</span>
+          <span class="node-state">idle</span>
+        </div>
+        <div class="node active">
+          <span class="node-dot"></span>
+          <span class="node-name">settings</span>
+          <span class="node-state">idle</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 方案 3: 状态矩阵 -->
+<div class="section">
+  <h2>方案 C: 状态矩阵 (所有组合)</h2>
+  
+  <div class="compare-grid">
+    <div class="compare-item">
+      <h3>active + inactive</h3>
+      <div class="node active">
+        <span class="node-dot"></span>
+        <span class="node-name">idle</span>
+      </div>
+      <p style="color: var(--text-tertiary); font-size: 10px; margin-top: 8px;">
+        活着但不活跃，淡显
+      </p>
+    </div>
+    
+    <div class="compare-item">
+      <h3>active + warm</h3>
+      <div class="node active warm">
+        <span class="node-dot"></span>
+        <span class="node-name">warm</span>
+      </div>
+      <p style="color: var(--text-tertiary); font-size: 10px; margin-top: 8px;">
+        最近有活动，呼吸动画
+      </p>
+    </div>
+    
+    <div class="compare-item">
+      <h3>active + inflight</h3>
+      <div class="node active inflight">
+        <span class="node-op">working</span>
+        <span class="node-dot"></span>
+        <span class="node-name">inflight</span>
+      </div>
+      <p style="color: var(--text-tertiary); font-size: 10px; margin-top: 8px;">
+        正在执行，脉冲发光
+      </p>
+    </div>
+    
+    <div class="compare-item">
+      <h3>pending + inflight</h3>
+      <div class="node pending inflight">
+        <span class="node-dot"></span>
+        <span class="node-name">loading...</span>
+      </div>
+      <p style="color: var(--text-tertiary); font-size: 10px; margin-top: 8px;">
+        初始化中，脉冲
+      </p>
+    </div>
+    
+    <div class="compare-item">
+      <h3>failed</h3>
+      <div class="node failed">
+        <span class="node-dot"></span>
+        <span class="node-name">error</span>
+      </div>
+      <p style="color: var(--text-tertiary); font-size: 10px; margin-top: 8px;">
+        失败状态，红色
+      </p>
+    </div>
+    
+    <div class="compare-item">
+      <h3>disposed</h3>
+      <div class="node disposed">
+        <span class="node-dot"></span>
+        <span class="node-name">gone</span>
+      </div>
+      <p style="color: var(--text-tertiary); font-size: 10px; margin-top: 8px;">
+        已卸载，灰色淡出
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+let animationEnabled = true;
+
+function setMode(mode) {
+  document.querySelectorAll('.control-btn').forEach(btn => btn.classList.remove('active'));
+  event.target.classList.add('active');
+  
+  // 这里可以切换不同的显示模式
+  console.log('Mode:', mode);
+}
+
+function toggleAnimation() {
+  animationEnabled = !animationEnabled;
+  document.querySelectorAll('.node').forEach(node => {
+    node.style.animationPlayState = animationEnabled ? 'running' : 'paused';
+  });
+}
+</script>
+
+</body>
+</html>
